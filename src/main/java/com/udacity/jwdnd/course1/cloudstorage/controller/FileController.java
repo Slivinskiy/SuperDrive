@@ -3,10 +3,7 @@ package com.udacity.jwdnd.course1.cloudstorage.controller;
 import com.udacity.jwdnd.course1.cloudstorage.model.File;
 import com.udacity.jwdnd.course1.cloudstorage.services.FileService;
 import com.udacity.jwdnd.course1.cloudstorage.services.UserService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -15,93 +12,142 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-
-import javax.swing.text.Document;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.util.List;
 
+/**
+ * Controller handling file operations.
+ */
+@Slf4j
 @Controller
 public class FileController {
-    private Logger logger = LoggerFactory.getLogger(FileController.class);
+
+    // View names
+    private static final String RESULT_VIEW = "result";
+    
+    // Model attribute keys
+    private static final String ATTR_SUCCESS_MESSAGE = "successMessage";
+    private static final String ATTR_ERROR_MESSAGE = "errorMessage";
+    
+    // File size limit (1 MB)
+    private static final long MAX_FILE_SIZE = 1048576L;
+    
+    // Success messages
+    private static final String SUCCESS_FILE_UPLOADED = "The file was successfully uploaded.";
+    private static final String SUCCESS_FILE_DELETED = "The file has been deleted.";
+    
+    // Error messages
+    private static final String ERROR_FILE_TOO_BIG = "Your file is too big. Max file size 1 MB.";
+    private static final String ERROR_FILE_EXISTS = "There is already a file with that name.";
+    private static final String ERROR_FILE_EMPTY = "Sorry, you didn't select any file.";
+    private static final String ERROR_FILE_UPLOAD = "There was an error uploading the file. Please try again.";
+    private static final String ERROR_FILE_DELETE = "There was an error deleting the file. Please try again.";
 
     private final FileService fileService;
     private final UserService userService;
 
-    public FileController(FileService fileService, UserService userService) {
+    public FileController(final FileService fileService, final UserService userService) {
         this.fileService = fileService;
         this.userService = userService;
     }
 
+    /**
+     * Handles file upload.
+     *
+     * @param fileUpload the uploaded file
+     * @param model the model for messages
+     * @param authentication the authenticated user
+     * @return the result view name
+     * @throws IOException if file reading fails
+     */
     @PostMapping("/file-upload")
-    public String handleFileUpload(@RequestParam("fileUpload") MultipartFile fileUpload, @ModelAttribute("file") File file, String fileName, Model model, Authentication authentication) throws IOException {
-        String username = authentication.getName();
-        Integer userid = this.userService.getUserByUsername(username).getUserId();
-        file.setUserId(userid);
+    public String handleFileUpload(@RequestParam("fileUpload") final MultipartFile fileUpload, final Model model, final Authentication authentication) throws IOException {
+        final var username = authentication.getName();
+        final var userId = userService.getUserByUsername(username).getUserId();
+        
+        log.info("File upload attempt by user: {}", username);
 
-        String errorMessage = null;
-
-        Long fileSize = fileUpload.getSize();
-
-        if (fileSize > 1048576){
-            errorMessage = "Your file is too big. Max file size 1 MB";
+        // Validate file
+        if (fileUpload.isEmpty()) {
+            log.warn("Empty file upload attempt by user: {}", username);
+            model.addAttribute(ATTR_ERROR_MESSAGE, ERROR_FILE_EMPTY);
+            return RESULT_VIEW;
         }
 
-        if(!fileService.IsFileNameAvailable(fileUpload.getOriginalFilename())){
-            errorMessage = "there is already a file with that name";
+        if (fileUpload.getSize() > MAX_FILE_SIZE) {
+            log.warn("File too large: {} bytes by user: {}", fileUpload.getSize(), username);
+            model.addAttribute(ATTR_ERROR_MESSAGE, ERROR_FILE_TOO_BIG);
+            return RESULT_VIEW;
         }
 
-
-        boolean emptyFile = fileUpload.isEmpty();
-        if (emptyFile){
-            errorMessage = "Sorry, you didn`t select any file.";
+        if (!fileService.isFileNameAvailable(fileUpload.getOriginalFilename())) {
+            log.warn("Duplicate filename: {} by user: {}", fileUpload.getOriginalFilename(), username);
+            model.addAttribute(ATTR_ERROR_MESSAGE, ERROR_FILE_EXISTS);
+            return RESULT_VIEW;
         }
 
-        if (errorMessage == null){
-          int rowsAdded = fileService.uploadFile(new File( fileUpload.getOriginalFilename(), fileUpload.getContentType(),String.valueOf(fileUpload.getSize()), userid, fileUpload.getBytes()));
-          if (rowsAdded < 0) {
-              errorMessage = "There was an error uploading the file. Please, try again";
-          }
-        }
-
-        if (errorMessage == null){
-            model.addAttribute("successMessage", "The file was successfully uploaded.");
-        }else {
-            model.addAttribute("errorMessage", errorMessage);
-        }
-
-        return "result";
-    }
-
-    @GetMapping("/file/delete/{fileId}")
-    public String deleteFile(@ModelAttribute("file") File file, Model model){
-        String errorMessage = null;
-
-        int rowsAffected = fileService.delete(file.getFileId());
-        if (rowsAffected < 0){
-            errorMessage = "There was an error deleting the file. Please try again.";
-        }
-        if (errorMessage == null){
-            model.addAttribute("successMessage", "The file han been deleted");
+        // Create and upload file
+        final var newFile = new File();
+        newFile.setFileName(fileUpload.getOriginalFilename());
+        newFile.setContentType(fileUpload.getContentType());
+        newFile.setFileSize(String.valueOf(fileUpload.getSize()));
+        newFile.setUserId(userId);
+        newFile.setFileData(fileUpload.getBytes());
+        
+        final var result = fileService.uploadFile(newFile);
+        
+        if (result > 0) {
+            log.info("File uploaded successfully: {} by user: {}", fileUpload.getOriginalFilename(), username);
+            model.addAttribute(ATTR_SUCCESS_MESSAGE, SUCCESS_FILE_UPLOADED);
         } else {
-            model.addAttribute("errorMessage", errorMessage);
+            log.error("Failed to upload file: {} by user: {}", fileUpload.getOriginalFilename(), username);
+            model.addAttribute(ATTR_ERROR_MESSAGE, ERROR_FILE_UPLOAD);
         }
 
-        return "result";
+        return RESULT_VIEW;
     }
 
+    /**
+     * Deletes a file by its ID.
+     *
+     * @param fileId the ID of the file to delete
+     * @param model the model for messages
+     * @return the result view name
+     */
+    @GetMapping("/file/delete/{fileId}")
+    public String deleteFile(@PathVariable final Integer fileId, final Model model) {
+        log.info("Deleting file ID: {}", fileId);
+        
+        final var result = fileService.delete(fileId);
+        
+        if (result > 0) {
+            model.addAttribute(ATTR_SUCCESS_MESSAGE, SUCCESS_FILE_DELETED);
+        } else {
+            log.error("Failed to delete file ID: {}", fileId);
+            model.addAttribute(ATTR_ERROR_MESSAGE, ERROR_FILE_DELETE);
+        }
+
+        return RESULT_VIEW;
+    }
+
+    /**
+     * Downloads a file by its name.
+     *
+     * @param fileName the name of the file to download
+     * @return ResponseEntity containing the file data
+     */
     @GetMapping("/file/view/{fileName}")
-        public ResponseEntity downloadFromDB(@PathVariable String fileName) {
-            File file = fileService.getFileByName(fileName);
-            return ResponseEntity.ok()
-                    .contentType(MediaType.parseMediaType(file.getContentType()))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getFileName() + "\"")
-                    .body(file.getFileData());
-        }
+    public ResponseEntity<byte[]> downloadFile(@PathVariable final String fileName) {
+        log.info("Downloading file: {}", fileName);
+        
+        final var file = fileService.getFileByName(fileName);
+        
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(file.getContentType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getFileName() + "\"")
+                .body(file.getFileData());
     }
+}
 
 
 

@@ -7,12 +7,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.thymeleaf.model.IModel;
 
 @Controller
 @RequestMapping("/login")
 public class LoginController {
-
     @GetMapping()
     public String loginView(User user, Model model){
      return "/login";
@@ -22,10 +20,4 @@ public class LoginController {
     public String loginUser(@ModelAttribute User user, Model model){
         return "/login";
     }
-
-
-
-
-
-
 }

@@ -8,10 +8,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @Controller
 @RequestMapping("/result")
 public class ResultController {
-
+    public static final String RESULT_VIEW = "result";
     @GetMapping
     public String getResultPage() {
-        return "result";
+        return RESULT_VIEW;
     }
 }
 
